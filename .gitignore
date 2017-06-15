@@ -1,0 +1,7 @@
+*.txt
+*.tsv
+*.png
+*.xml
+.DS_Store
+.idea/*
+BCL3.t00
