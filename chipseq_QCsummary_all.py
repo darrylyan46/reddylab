@@ -22,15 +22,15 @@ def fingerprintExists(sample):
 
 def main():
     parser = argparse.ArgumentParser('Generates QC metric summary file for available ChIP-seq samples')
-    parser.add_argument('f', '--fingerprint_dir', required=False, default=FINGERPRINT_PATH,
+    parser.add_argument('-f', '--fingerprint_dir', required=False, default=FINGERPRINT_PATH,
                         help='Directory for fingerprint data')
-    parser.add_argument('c', '--chilin_dir', required=False, default=CHILIN_PATH,
+    parser.add_argument('-c', '--chilin_dir', required=False, default=CHILIN_PATH,
                         help='Directory for chilin data')
     parser.add_argument('-o', '--out', required=False, type=str, default=OUT_DIR,
                         help='Output directory name (by default called QC_summary in current directory)')
     parser.add_argument('-j', '--json', required=False, action='store_true', default=False,
                         help='Output format as .json file (by default False)')
-    parser.add_argument('t', '--tsv', required=False, action='store_true', default=True,
+    parser.add_argument('-t', '--tsv', required=False, action='store_true', default=True,
                         help='Output format as .tsv file (by default True)')
     args = parser.parse_args()
 
