@@ -40,7 +40,7 @@ def main():
 
     #Find all factors not in the file -> process those -> add to file
 
-    p = subprocess.Popen(['sbatch', '/data/reddylab/Darryl/fingerprint_summary.sh', args.fingerprin_dir],
+    p = subprocess.Popen(['sbatch', '/data/reddylab/Darryl/fingerprint_summary.sh', args.fingerprint_dir],
                          shell=True,
                          stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     out, err = p.communicate()
