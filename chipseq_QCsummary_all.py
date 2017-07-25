@@ -40,7 +40,6 @@ def make_fingerprint_summary(in_dir, out_dir):
         reader = csv.reader(header_file, delimiter='\t')
         header = reader.next()
         writer.writerow(header)                                         # Read in the header
-
     for file in files:
         if os.stat(file).st_size != 0:
             with open(file, 'rb') as f:
@@ -99,7 +98,7 @@ def main():
     parser.add_argument('-s', '--summary', required=True, nargs='+',
                         help='Path(s) for QC. Must match number of fingerprint directories.')
     parser.add_argument('--force', required=False, action='store_true',
-                        default=False, help='''Program runs non-imnteractively with
+                        default=False, help='''Program runs non-interactively with
                         default settings (output to QC_summary, override existing file)''')
     parser.add_argument('-c', '--chilin_dir', required=False, type=str, nargs='?',
                         default=CHILIN_PATH, help='Directory for chilin data [NOT FUNCTIONAL]')
