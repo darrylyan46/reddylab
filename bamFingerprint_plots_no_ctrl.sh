@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --partition=new
-#SBATCH --output=/data/reddylab/Darryl/outlogs/no_ctrl%a.out
+#SBATCH --output=/data/reddylab/Darryl/logs/no_ctrl%a.out
 DIR="$1"
 OUT_DIR="$3"
 FACTORS=( $2 )

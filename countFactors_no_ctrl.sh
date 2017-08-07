@@ -4,9 +4,8 @@
 source /data/reddylab/software/miniconda2/bin/activate alex
 DIR="$1"
 OUT_DIR="$2"
-if [ ! -d "$2" ]; then
-        mkdir "$2"
-fi
+mkdir -p ${OUT_DIR}
+rsync -v ${MY_DIR}/*spp* ${OUT_DIR}
 FACTORS=($(/bin/ls -1 ${DIR}/*bam.bai | sed "s@${DIR}/@@" | cut -d '.' -f1,2 | grep -v gre | uniq))
 len=$((${#FACTORS[@]}-1))
 echo "The directory is ${DIR}"
