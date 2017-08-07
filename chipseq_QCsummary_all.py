@@ -191,6 +191,7 @@ def main():
     df = pd.DataFrame()
     for i in range(len(args.in_dirs)):
         new_df = process_directory(args.in_dirs[i])
+        df = df.append(df)
 
         '''
         dir = args.in_dirs[i]
@@ -199,7 +200,7 @@ def main():
         fingerprint_summary_name = args.out + 'fingerprint_QCsummary_' + os.path.basename(dir) + '.tsv'
         fingerprint_df = file_to_df(fingerprint_summary_name)
 
-        # Add fingerprint images
+        # Add sample-associated images
         images = []
         for sample in fingerprint_df['sample'].tolist():
             imgs = [file for file in os.listdir(dir) if file.endswith('.png') and sample in file]
