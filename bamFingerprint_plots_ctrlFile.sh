@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --partition=new
-#SBATCH --output=outlogs/myout_%a.out
+#SBATCH --output=/data/reddylab/Darryl/logs/myout_%a.out
 OUT_DIR="$3"
 MY_DIR="$2"
 CTRL_FILE=/data/reddylab/projects/GGR/data/chip_seq/metadata/trt_to_ctrl.txt

@@ -4,6 +4,13 @@ import pandas as pd
 import re
 import base64
 
+# Python script and command line tool for compiling fingerprint and QC data from ChIP-seq
+# experiments. Make sure to activate the 'alex' virtual environment from miniconda using
+# `source /data/reddylab/software/miniconda2/bin/activate alex` command from HARDAC. To
+# run full workflow, run the `countFactors_standard.sh` that outputs data directories
+# then run this script on those outputs.
+
+
 CWD = os.getcwd() + "/"
 OUT_DIR = CWD + "QC_summary/"
 
