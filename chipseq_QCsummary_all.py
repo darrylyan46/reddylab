@@ -20,8 +20,12 @@ def stringFormat(string):
 
 
 def base64encode(in_file):
-    with open(in_file, 'rb') as f:
-        return base64.b64encode(f.read())
+    try:
+        with open(in_file, 'rb') as f:
+            return base64.b64encode(f.read())
+    except IOError:
+        with open(in_file, 'rb') as f:
+            return base64.b64encode(f.read())
 
 
 def standardize_header(arr):
