@@ -1,105 +1,50 @@
-import os, csv, fnmatch
+import os, csv
 import argparse
 import pandas as pd
+import re
 import base64
-import json
-import numpy as np
-import subprocess
 
 CWD = os.getcwd() + "/"
-RAW_READS_PATH = "/data/reddylab/projects/GGR/data/chip_seq/processed_raw_reads/iter0"
-FINGERPRINT_PATH = "/data/reddylab/Darryl/plots"
-SUMMARY_PATH = "/data/reddylab/projects/GGR/analyses/reports/chip_seq/chip_seq_summary_iter0.tsv"
-CHILIN_PATH = ""
 OUT_DIR = CWD + "QC_summary/"
 
 
-def extract_factor_names(df):
-    factor_names = [row.split('.')[0] for row in df['sample'].tolist()]
-    df['factor_name'] = pd.Series(factor_names, index=df.index)
-    print("Filtered by factor: " + str(len(set(factor_names))))
-    valid_seps = ['-', ]
-
 def stringFormat(string):
     return string.strip().lower().replace(" ", "_").replace('-', '_').replace("%", "percent")
+
 
 def base64encode(in_file):
     with open(in_file, 'rb') as f:
         return base64.b64encode(f.read())
 
 
-def make_fingerprint_summary(in_dir, out_dir):
-    """
-    Writes summary of fingerprint data in a tab-delimited format to file
-    :param in_dir: Working directory containing fingerprint data and QCs, string
-    :param out_dir: Output directory, string
-    :return: None
-    """
-    files = [os.path.join(in_dir, file) for file in os.listdir(in_dir) if file.endswith('QCmetrics.txt') \
-             and os.stat(os.path.join(in_dir, file)).st_size != 0]
-    assert (len(files) > 0), 'Must have at least one fingerprint QC metrics file (QCmetrics.txt) file in the directory'
-
-    out_filename = out_dir + 'fingerprint_QCsummary_' + os.path.basename(in_dir) + '.tsv'
-    out_file = open(out_filename, 'wb')
-    writer = csv.writer(out_file, delimiter=',')
-    with open(files[0], 'rb') as header_file:
-        reader = csv.reader(header_file, delimiter='\t')
-        header = reader.next()
-        writer.writerow(header)                                         # Read in the header
-
-    for file in files:
-        if os.stat(file).st_size != 0:
-            with open(file, 'rb') as f:
-                reader = csv.reader(f, delimiter='\t')
-                header = reader.next()                                  # Skip header
-                for line in reader:
-                    if "ctrl" not in line[0]:
-                        writer.writerow(line)
-    out_file.close()
-    return
-
-
-def standardize_header(df):
+def standardize_header(arr):
     """Returns a dataframe header as list, standardized to
     QC naming convention
-    :param df: A Pandas dataframe object
+    :param arr: A list of strings representing header
     :return: Standardized column names, list of strings
     """
-    col_names_one = ['sample', 'reads_sequenced', 'reads_after_trimming',
-                       'reads_mapped', 'percent_unique', 'reads_mapped_filtered',
-                       'percent_unique_mapped_filtered', 'reads_in_peaks',
-                       'percent_in_peaks', 'broad_peak_count', 'narrow_peak_count',
-                       'pbc_one', 'nsc', 'rsc']
-    col_names_two = ['sample', 'reads_sequenced', 'reads_after_trimming',
-                     'reads_mapped', 'percent_reads_mapped', 'reads_mapped_filtered',
-                     'percent_mapped_filtered', 'reads_in_peaks', 'percent_in_peaks',
-                     'peaks', 'percent_unique', 'pbc_one', 'nsc', 'rsc', 'comment']
-
-    if 'raw' in list(df):
-        return col_names_one
-    else:
-        return col_names_two
-
-def file_to_df(filename):
-    """
-    Creates Pandas dataframe object with under_score headers from CSV or TSV
-    :param filename: The file to be read into dataframe, string
-    :return: A Pandas dataframe
-    """
-    with open(filename, 'rb') as f:
-        sniffer = csv.Sniffer()
-        dialect = sniffer.sniff(f.readline(), ['\t', ','])
-        f.seek(0)
-        reader = csv.reader(f, delimiter=dialect.delimiter)
-        col_names = [stringFormat(col)
-                     for col in next(reader)]
-        f.seek(0)
-        df = pd.read_csv(f, delimiter=dialect.delimiter, skiprows=[0], header=None, names=col_names)
-    return df
+    header_dict = {"sample": "sample", "raw": "reads_sequenced",
+                   "reads_sequenced": "reads_sequenced", "reads after trimming": "reads_after_trimming",
+                   "trimmed": "reads_after_trimming", "mapped": "reads_mapped",
+                   "reads_mapped": "reads_mapped", "percentage_unique": "percent_unique",
+                   "%reads unique": "percent_unique",
+                   "percentage_unique_mapped_and_filtered": "percent_unique_mapped_filtered",
+                   "%reads mapped after de-dup & filtering": "percent_unique_mapped_filtered",
+                   "reads in peaks": "reads_in_peaks", "in_peaks": "reads_in_peaks",
+                   "percent_in_peaks": "percent_in_peaks", "% reads in peaks": "percent_in_peaks",
+                   "broadPeak_count": "broad_peak_count", "narrowPeak_count": "narrow_peak_count",
+                   "nrf": "nrf", "pbc": "pbc_one", "nsc": "nsc", "rsc": "rsc", "comment": "comment"}
+    useCols = []
+    elements = []
+    for i, ele in enumerate(arr):
+        if ele.lower() in header_dict.keys():
+            elements.append(header_dict[ele.lower()])
+            useCols.append(i)
+    return [elements, useCols]
 
 def process_directory(in_dir):
     """
-
+    Processes data in directory, returns as Pandas dataframe
     :param in_dir: Input data directory, String
     :return: A Pandas dataframe containing fingerprint data, QCs, and images
     """
@@ -109,10 +54,12 @@ def process_directory(in_dir):
     for file in os.listdir(in_dir):
         if file.endswith('QCmetrics.txt'):                          # If fingerprint QC file, add to array
             fingerprint_qc_arr.append(file)
-        elif file.lower() == 'qc.csv' or file.lower() == 'qc.txt':  # If lab-computed QC file, set var
+        elif file.lower() == 'qc.csv' or file.lower() == 'qc.txt'\
+                or file.lower() == 'chip_seq_summary_iter0.tsv':    # If lab-computed QC file, set var
             qc_file = file
         elif file.endswith('.cross_corr.txt'):                      # If cross corr data, add to array
             spp_data_arr.append(file)
+    assert qc_file != "", "qc.txt or qc.csv file not found for directory: " + str(in_dir)
 
     # Process QC file into a dataframe
     with open(os.path.join(in_dir, qc_file), 'rb') as f:
@@ -120,34 +67,40 @@ def process_directory(in_dir):
         dialect = sniffer.sniff(f.readline(), ['\t', ','])
         reader = csv.reader(f, delimiter=dialect.delimiter)
         f.seek(0)
-        column_names = [stringFormat(col)
-                        for col in next(reader)]
+        column_names = reader.next()
         f.seek(0)
-        df = pd.read_csv(f, delimiter=dialect.delimiter, header=None,
-                           names=standardize_header(column_names), index_col=0)
+        df = pd.read_csv(f, delimiter=dialect.delimiter, skiprows=[0], header=None,
+                         usecols=standardize_header(column_names)[1],
+                         names=standardize_header(column_names)[0], index_col=0)
 
     # Add fingerprint data to dataframe
     for file in fingerprint_qc_arr:
-        if os.stat(file).st_size != 0:
+        if os.stat(os.path.join(in_dir, file)).st_size != 0:
             with open(os.path.join(in_dir, file), 'rb') as f:
-                reader = csv.reader(f, delimiter='\t')
+                sniffer = csv.Sniffer()
+                dialect = sniffer.sniff(f.readline(), ['\t', ','])
+                reader = csv.reader(f, delimiter=dialect.delimiter)
+                f.seek(0)
                 header = reader.next()
                 for line in reader:
                     for i in range(len(line)):
-                        sample_name = line[0]                       # Sample name is always first element of row
-                        df.set_value(sample_name, stringFormat(header[i]), line[i])
+                        if i != 0:
+                            sample_name = line[0]                   # Sample name is always first element of row
+                            df.set_value(sample_name, stringFormat(header[i]), stringFormat(line[i]))
 
     # Add fingerprint images
-    for sample in df['sample'].tolist():
+    for sample in df.index.values:                                  # Index is sample name
         fp_image = ''
         spp_image = ''
-        for file in os.listdir(in_dir):
-            if file.endswith('.png') and sample in file:
-                fp_image = file
-            elif file.endswith('.pdf') and sample in file:
-                spp_image = file
-        df.set_value(sample, 'fp_image', base64encode(os.path.join(in_dir, fp_image)))
-        df.set_value(sample, 'spp_image', base64encode(os.path.join(in_dir, spp_image)))
+        for img_file in os.listdir(in_dir):
+            if img_file.endswith('.png') and sample in img_file:
+                    fp_image = img_file
+            if img_file.endswith('.pdf') and sample in img_file:
+                    spp_image = img_file
+        if fp_image != '':
+            df.set_value(sample, 'fp_image', base64encode(os.path.join(in_dir, fp_image)))
+        if spp_image != '':
+            df.set_value(sample, 'spp_image', base64encode(os.path.join(in_dir, spp_image)))
 
     return df
 
@@ -191,50 +144,13 @@ def main():
     df = pd.DataFrame()
     for i in range(len(args.in_dirs)):
         new_df = process_directory(args.in_dirs[i])
-        df = df.append(df)
-
-        '''
-        dir = args.in_dirs[i]
-
-        make_fingerprint_summary(dir, args.out)
-        fingerprint_summary_name = args.out + 'fingerprint_QCsummary_' + os.path.basename(dir) + '.tsv'
-        fingerprint_df = file_to_df(fingerprint_summary_name)
-
-        # Add sample-associated images
-        images = []
-        for sample in fingerprint_df['sample'].tolist():
-            imgs = [file for file in os.listdir(dir) if file.endswith('.png') and sample in file]
-            if imgs:
-                with open(os.path.join(dir, imgs[0]), 'rb') as f:
-                    data = base64.b64encode(f.read())
-                    images.append(data)
-            else:
-                images.append("")
-        fingerprint_df['fp_image'] = pd.Series(images, index=fingerprint_df.index)
-
-        sum_df = file_to_df(args.summary[i])
-        sum_df.rename(columns=dict(zip(list(sum_df), standardize_header(sum_df))), inplace=True)
-        print(sum_df.head())
-        print("Summary dimensions: " + str(sum_df.shape))
-        print(fingerprint_df.head())
-        print("Fingerprint dimensions: " + str(fingerprint_df.shape))
-        result = pd.merge(fingerprint_df, sum_df, how='outer', on='sample')
-        result.sort_values(by=['sample'], inplace=True)
-        print(result.head())
-        print("Merge dimensions: " + str(result.shape))
-        df = df.append(result, ignore_index=True)
-        print('Appended dataframe, new dataframe is: ' + str(df.shape))
-        col_order = list(result) + [col for col in list(df) if col not in list(result)]
-        df = df.reindex(columns=col_order)
-        '''
-    factor_names = [row.split('.')[0] for row in df['sample'].tolist()]
-    df['factor_name'] = pd.Series(factor_names, index=df.index)
+        df = df.append(new_df)
+    factor_names = [row.split('.')[0] for row in df.index.values]
     df.rename(columns={'diff._enrichment':'diff_enrichment'}, inplace=True)
-    df.drop_duplicates('sample', inplace=True)
-    df.set_index(['sample'], inplace=True)
-    print(df.head())
     print('Final result dimensions: ' + str(df.shape))
     print("Number of unique factor names: " + str(len(set(factor_names))))
+    print("Header is: " + " ".join(list(df)))
+    print("Samples are: " + " ".join(df.index.values))
 
     # if argument specifies JSON
     if args.json:
