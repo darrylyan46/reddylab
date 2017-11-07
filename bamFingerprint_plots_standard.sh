@@ -7,24 +7,20 @@
 # that follow the Reddy Lab sequencing sample naming conventions.
 
 source /data/reddylab/software/miniconda2/bin/activate alex
-OUT_DIR="$3"
-MY_DIR="$2"
 FACTORS=( $1 )
-factor_file=${FACTORS[${SLURM_ARRAY_TASK_ID}]}
-FACTOR=$(echo ${factor_file} | sed "s@${MY_DIR}/@@")
-cell=$(echo "${FACTOR}" | cut -d '.' -f 1)
-experiment=$(echo "${FACTOR}" | cut -d '.' -f 2)
-treat=$(echo "${FACTOR}" | cut -d '.' -f 3)
-hr=$(echo "${FACTOR}" | cut -d '.' -f 4)
-rep=$(echo "${FACTOR}" | cut -d '.' -f 5)
-ip_ctrl=$(/bin/ls -1 ${MY_DIR}/*${cell}*{IP,Ip,ip}*{CTRL,Ctrl,ctrl}*${hr}*${rep}*bam.bai | \
-         sed 's/.bai//')
-input_ctrl=$(/bin/ls -1 ${MY_DIR}/*${cell}*{INPUT,Input,input}*{CTRL,Ctrl,ctrl}*${hr}*${rep}*bam.bai | \
-         sed 's/.bai//')
-factor_label=$(echo ${FACTOR} | \
-	cut -d '.' -f 1,2,3,4,5)
-echo "Cell is: ${cell}, experiment is: ${experiment}, treatment is: ${treat}, hour is: ${hr}, replicate is: ${rep}"
-echo "Factor file is: ${factor_file}"
+METADATA="$2"
+IN_DIR="$3"
+OUT_DIR="$4"
+FACTOR=${FACTORS[${SLURM_ARRAY_TASK_ID}]}
+FACTOR_FILE=$(/bin/ls -1 ${IN_DIR}/${FACTOR}*.bam.bai | sed "s/.bai//")
+# Extract all information out of metadata file
+flowcell=$(grep "${FACTOR}" ${METADATA} |  cut -f1)
+ip_ctrl=$(grep "${FACTOR}" ${METADATA} |  cut -f8)
+ctrl=$(grep "${FACTOR}" ${METADATA} | cut -f9)
+echo "Factor file is: ${FACTOR_FILE}"
+echo "Factor label is: ${FACTOR}"
+echo "Flowcell is: ${flowcell}, IP control is: ${ip_ctrl}, control is: ${ctrl}"
+exit 0
 # Case where treatment is a control sample
 if [ "${factor_file}" = "${ip_ctrl}" ] \
 || [ "${factor_file}" = "${input_ctrl}" ];

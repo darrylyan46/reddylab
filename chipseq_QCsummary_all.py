@@ -1,8 +1,9 @@
 import os, csv
 import argparse
 import pandas as pd
-import re
 import base64
+import csv_to_mongo
+import subprocess
 
 # Python script and command line tool for compiling fingerprint and QC data from ChIP-seq
 # experiments. Make sure to activate the 'alex' virtual environment from miniconda using
@@ -13,19 +14,48 @@ import base64
 
 CWD = os.getcwd() + "/"
 OUT_DIR = CWD + "QC_summary/"
+CLIENT_URI="mongodb://67.159.92.22:2017/chipseq_qc"
+
+
+def pretty_print(df):
+    with pd.option_context('display.max_rows', None, 'display.max_columns', len(df)):
+        print(df)
 
 
 def stringFormat(string):
     return string.strip().lower().replace(" ", "_").replace('-', '_').replace("%", "percent")
 
 
-def base64encode(in_file):
+def read_file_base64(in_file):
+    """
+    Helper function that reads file into binary
+    :param in_file: Absolute path to file
+    :return: The file contents as a string
+    """
     try:
         with open(in_file, 'rb') as f:
             return base64.b64encode(f.read())
+    # Exception for symlinks
     except IOError:
-        with open(in_file, 'rb') as f:
+        with open(os.readlink(in_file), 'rb') as f:
             return base64.b64encode(f.read())
+
+
+def read_metadata(in_file):
+    """
+    Helper function that reads a metadata file and returns a dictionary of values
+    :param in_file: The full metadata file path as a string
+    :return: A dictionary of the files' attributes
+    """
+    attr = {}
+    # Read a 2-line tab-delimited file with header and contents
+    with open(in_file, 'rb') as f:
+        reader = csv.reader(f, delimiter='\t')
+        header = [stringFormat(ele) for ele in next(reader)]
+        contents = [stringFormat(ele) for ele in next(reader)]
+        attr = dict(zip(header, contents))
+
+    return attr
 
 
 def standardize_header(arr):
@@ -45,13 +75,14 @@ def standardize_header(arr):
                    "percent_in_peaks": "percent_in_peaks", "% reads in peaks": "percent_in_peaks",
                    "broadPeak_count": "broad_peak_count", "narrowPeak_count": "narrow_peak_count",
                    "nrf": "nrf", "pbc": "pbc_one", "nsc": "nsc", "rsc": "rsc", "comment": "comment"}
-    useCols = []
     elements = []
+    useColumns = []
     for i, ele in enumerate(arr):
         if ele.lower() in header_dict.keys():
             elements.append(header_dict[ele.lower()])
-            useCols.append(i)
-    return [elements, useCols]
+            useColumns.append(i)
+    return elements, useColumns
+
 
 def process_directory(in_dir):
     """
@@ -59,59 +90,80 @@ def process_directory(in_dir):
     :param in_dir: Input data directory, String
     :return: A Pandas dataframe containing fingerprint data, QCs, and images
     """
+    qc_file = ""
     fingerprint_qc_arr = []
     spp_data_arr = []
-    qc_file = ""
-    for file in os.listdir(in_dir):
-        if file.endswith('QCmetrics.txt'):                          # If fingerprint QC file, add to array
-            fingerprint_qc_arr.append(file)
-        elif file.lower() == 'qc.csv' or file.lower() == 'qc.txt'\
-                or file.lower() == 'chip_seq_summary_iter0.tsv':    # If lab-computed QC file, set var
-            qc_file = file
-        elif file.endswith('.cross_corr.txt'):                      # If cross corr data, add to array
-            spp_data_arr.append(file)
-    assert qc_file != "", "qc.txt or qc.csv file not found for directory: " + str(in_dir)
+    images = []
+    metadata_files = []
+    # Separate files into appropriate lists
+    for filename in os.listdir(in_dir):
+        # Append the file path
+        file_path = os.path.join(in_dir, filename)
+        if filename.lower().endswith('_metadata.txt'):                      # Find metadata
+            metadata_files.append(file_path)
+        elif filename.endswith('_QCmetrics.txt'):                           # If fingerprint QC file, add to array
+            fingerprint_qc_arr.append(file_path)
+        elif filename.lower() == 'qc.csv' or filename.lower() == 'qc.txt' \
+                or filename.lower() == 'chip_seq_summary_iter0.tsv':        # If lab-computed QC file, set var
+            qc_file = file_path
+        elif filename.endswith(".png") or filename.endswith(".pdf"):
+            images.append(file_path)
+        elif filename.endswith('.cross_corr.txt'):                          # If cross corr data, add to array
+            spp_data_arr.append(file_path)
+
+    if not qc_file:
+        return None
 
     # Process QC file into a dataframe
-    with open(os.path.join(in_dir, qc_file), 'rb') as f:
-        sniffer = csv.Sniffer()
-        dialect = sniffer.sniff(f.readline(), ['\t', ','])
+    with open(os.readlink(qc_file), 'rb') as f:
+        # Find delimiter using Sniffer class
+        dialect = csv.Sniffer().sniff(f.readline(), ['\t', ','])
         reader = csv.reader(f, delimiter=dialect.delimiter)
         f.seek(0)
-        column_names = reader.next()
-        f.seek(0)
-        df = pd.read_csv(f, delimiter=dialect.delimiter, skiprows=[0], header=None,
-                         usecols=standardize_header(column_names)[1],
-                         names=standardize_header(column_names)[0], index_col=0)
+        column_names = standardize_header(next(reader))
+        # Read data into Pandas dataframe
+        df = pd.read_csv(f, delimiter=dialect.delimiter, header=None,
+                         names=column_names[0], usecols=column_names[1], engine='python')
+    df.set_index('sample', inplace=True)
 
     # Add fingerprint data to dataframe
-    for file in fingerprint_qc_arr:
-        if os.stat(os.path.join(in_dir, file)).st_size != 0:
-            with open(os.path.join(in_dir, file), 'rb') as f:
-                sniffer = csv.Sniffer()
-                dialect = sniffer.sniff(f.readline(), ['\t', ','])
-                reader = csv.reader(f, delimiter=dialect.delimiter)
-                f.seek(0)
-                header = reader.next()
-                for line in reader:
-                    for i in range(len(line)):
-                        if i != 0:
-                            sample_name = line[0]                   # Sample name is always first element of row
-                            df.set_value(sample_name, stringFormat(header[i]), stringFormat(line[i]))
+    fp_df = pd.DataFrame()
+    for filename in fingerprint_qc_arr:
+        if os.stat(filename).st_size != 0:
+            with open(filename, 'rb') as f:
+                reader = csv.reader(f, delimiter='\t')
+                header = [stringFormat(ele) for ele in next(reader)]
+                print("Header for fingerprint is: {}".format(header))
+                new_fp_df = pd.read_csv(f, delimiter='\t', header=None,
+                                        names=header, engine='python')
+                fp_df = fp_df.append(new_fp_df)
+    fp_df.drop_duplicates(subset='sample', keep='last', inplace=True)
+    fp_df.set_index('sample', inplace=True)
+    df = df.merge(fp_df, left_index=True, right_index=True, how='left')
 
-    # Add fingerprint images
+    # Add fingerprint images and metadata information
     for sample in df.index.values:                                  # Index is sample name
         fp_image = ''
         spp_image = ''
-        for img_file in os.listdir(in_dir):
-            if img_file.endswith('.png') and sample in img_file:
-                    fp_image = img_file
-            if img_file.endswith('.pdf') and sample in img_file:
-                    spp_image = img_file
-        if fp_image != '':
-            df.set_value(sample, 'fp_image', base64encode(os.path.join(in_dir, fp_image)))
-        if spp_image != '':
-            df.set_value(sample, 'spp_image', base64encode(os.path.join(in_dir, spp_image)))
+        metadata_file = ''
+        for filename in images:
+            if filename.endswith('.png') and sample in filename:
+                fp_image = filename
+            elif filename.endswith('.pdf') and sample in filename:
+                spp_image = filename
+        for filename in metadata_files:
+            if sample in filename:
+                metadata_file = filename
+        if fp_image:
+            df.set_value(sample, 'fp_image', read_file_base64(fp_image))
+        if spp_image:
+            df.set_value(sample, 'spp_image', read_file_base64(spp_image))
+        if metadata_file:
+            # Read in all metadata attributes into df
+            for key, value in read_metadata(metadata_file).iteritems():
+                df.set_value(sample, key, value)
+        # Set flowcell name to base directory
+        df.set_value(sample, 'flowcell', os.path.basename(in_dir))
 
     return df
 
@@ -161,7 +213,6 @@ def main():
     print('Final result dimensions: ' + str(df.shape))
     print("Number of unique factor names: " + str(len(set(factor_names))))
     print("Header is: " + " ".join(list(df)))
-    print("Samples are: " + " ".join(df.index.values))
 
     # if argument specifies JSON
     if args.json:
@@ -170,7 +221,7 @@ def main():
         print("Wrote JSON file to: " + args.out)
     # if argument specifies TSV
     if args.tsv:
-        filename = args.out + 'chipseq_QCsummary.tsv'
+        filename = os.path.join(args.out, 'chipseq_QCsummary.tsv')
         if args.force:
             df.to_csv(filename, sep='\t')
         else:
@@ -192,15 +243,9 @@ def main():
             else:
                 df.to_csv(filename, sep='\t')
         print("Wrote TSV file to: " + args.out)
-    # if argument specifies EXCEL
-    '''
-    if args.excel:
-        writer = pd.ExcelWriter(args.out + 'chipseq_QCsummary.xlsx', engine='xlsxwriter')
-        result.to_excel(writer, sheet_name='summary')
-        worksheet = writer.sheets['summary']
-    '''
 
     print("--Program finished successfully--")
+    return 0
 
 if __name__ == '__main__':
     main()

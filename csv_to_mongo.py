@@ -49,7 +49,7 @@ def main():
         if args.headerline:
             headers = f.readline().split(delimiter)
         for line in f:
-            fields = line.split(delimiter)
+            fields = [line.strip('\n') for line in line.split(delimiter)]
             db[args.collection].insert_one(dict(zip(headers, fields)))
 
 if __name__ == '__main__':
